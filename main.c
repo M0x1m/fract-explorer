@@ -3,6 +3,7 @@
 #include <stdbool.h>
 
 #include <SDL.h>
+#include <SDL_ttf.h>
 #include <png.h>
 #include <gmp.h>
 
@@ -137,14 +138,36 @@ void reinit_pos(struct render_ctx *ctx)
     memcpy(ctx->im, nim, sizeof(nim));
 }
 
+void render_coords(struct render_ctx ctx, SDL_Renderer *renderer, TTF_Font* font)
+{
+    char buf[256];
+    SDL_Texture *texture;
+    SDL_Surface *surface;
+    SDL_Color color = {255, 255, 255, 255};
+    SDL_Rect dest;
+
+    gmp_snprintf(buf, sizeof(buf), "re: %.32Ff\nim: %.32Ff\nscale: %Ff\niters: %d", ctx.re, ctx.im, ctx.scale, ctx.iters);
+    surface = TTF_RenderUTF8_Blended_Wrapped(font, buf, color, 0);
+    texture = SDL_CreateTextureFromSurface(renderer, surface);
+    dest.x = 20;
+    dest.y = 20;
+    dest.w = surface->w;
+    dest.h = surface->h;
+    SDL_FreeSurface(surface);
+    SDL_RenderCopy(renderer, texture, NULL, &dest);
+    SDL_DestroyTexture(texture);
+}
+
 int main(int argc, char **argv)
 {
     const char *gradient_path;
     uint32_t *gradient_pixels;
     int gradient_width, gradient_height, width, height, precision = 16;
+    float scd = 1;
     SDL_Renderer *renderer;
     SDL_Window *window;
     SDL_Texture *texture;
+    TTF_Font *font;
     SDL_Thread *thread;
     bool quit;
     struct render_ctx render_ctx = {0};
@@ -159,6 +182,17 @@ int main(int argc, char **argv)
     gradient_path = argv[1];
     gradient_pixels = load_image(gradient_path, &gradient_width, &gradient_height);
     if (gradient_pixels == NULL) {
+        exit(1);
+    }
+
+    if (TTF_Init() < 0) {
+        fprintf(stderr, "ERROR: could not init TTF: %s\n", TTF_GetError());
+        exit(1);
+    }
+
+    font = TTF_OpenFont("font.ttf", 32);
+    if (font == NULL) {
+        fprintf(stderr, "ERROR: could not open font: %s\n", TTF_GetError());
         exit(1);
     }
 
@@ -217,11 +251,13 @@ int main(int argc, char **argv)
             case SDL_WINDOWEVENT: {
                 if (event.window.event == SDL_WINDOWEVENT_RESIZED) {
                     SDL_GetWindowSize(window, &width, &height);
+resize:
                     SDL_DestroyTexture(texture);
-                    texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STATIC, width, height);
+                    texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STATIC, width*scd, height*scd);
                     SDL_SetTextureBlendMode(texture, SDL_BLENDMODE_BLEND);
-                    render_ctx.width = width;
-                    render_ctx.height = height;
+                    TTF_SetFontSize(font, (float)height/30);
+                    render_ctx.width = width*scd;
+                    render_ctx.height = height*scd;
                     render_ctx.resized = false;
                     render_ctx.needs_rerender = true;
 
@@ -239,6 +275,9 @@ int main(int argc, char **argv)
                 case SDLK_d: mpf_add(render_ctx.re, render_ctx.re, t); break;
                 case SDLK_x: render_ctx.iters -= 10; break;
                 case SDLK_c: render_ctx.iters += 10; break;
+                case SDLK_t: if (scd > 0.1f) scd -= 0.1f; goto resize;
+                case SDLK_y: if (scd < 1.0f) scd += 0.1f; goto resize;
+                case SDLK_r: scd = 1.0f; goto resize;
 
                 case SDLK_p:
                     precision += 10;
@@ -260,6 +299,23 @@ int main(int argc, char **argv)
                 notrig:
                 mpf_clear(t);
             } break;
+            case SDL_MOUSEBUTTONDOWN: {
+                int x, y;
+                mpf_t re, im;
+                x = event.button.x*scd;
+                y = event.button.y*scd;
+                mpf_init_set_si(re, x-width*scd/2);
+                mpf_div(re, re, render_ctx.scale);
+                mpf_add(re, re, render_ctx.re);
+                mpf_init_set_si(im, y-height*scd/2);
+                mpf_div(im, im, render_ctx.scale);
+                mpf_add(im, im, render_ctx.im);
+                mpf_set(render_ctx.im, im);
+                mpf_set(render_ctx.re, re);
+                mpf_clears(re, im, NULL);
+                render_ctx.needs_rerender = true;
+                SDL_CondSignal(render_ctx.cond);
+            } break;
             }
         }
 
@@ -269,6 +325,7 @@ int main(int argc, char **argv)
             SDL_UpdateTexture(texture, NULL, render_ctx.pixels, render_ctx.width*sizeof(uint32_t));
         }
         SDL_RenderCopy(renderer, texture, NULL, NULL);
+        render_coords(render_ctx, renderer, font);
 
         SDL_RenderPresent(renderer);
     }
@@ -283,6 +340,7 @@ int main(int argc, char **argv)
     SDL_DestroyMutex(render_ctx.mutex);
     SDL_DestroyCond(render_ctx.cond);
     mpf_clears(render_ctx.im, render_ctx.re, NULL);
+    TTF_CloseFont(font);
     
     return 0;
 }

@@ -139,6 +139,11 @@ int worker_thread(void *data)
         SDL_CondWait(w->cond, w->mutex);
         render_fract_rect(w);
     }
+    SDL_LockMutex(w->ctx->mutex);
+    w->next_free = w->ctx->free;
+    w->ctx->free = w;
+    SDL_UnlockMutex(w->ctx->mutex);
+    SDL_CondSignal(w->ctx->lcond);
     SDL_UnlockMutex(w->mutex);
 
     return 0;
@@ -453,6 +458,7 @@ resize:
         SDL_RenderPresent(renderer);
     }
     SDL_CondSignal(rctx->cond);
+    SDL_CondSignal(rctx->lcond);
     SDL_WaitThread(thread, NULL);
 
     SDL_DestroyRenderer(renderer);

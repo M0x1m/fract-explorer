@@ -480,9 +480,11 @@ resize:
     free(rctx->pixels);
     SDL_DestroyMutex(rctx->mutex);
     SDL_DestroyCond(rctx->cond);
-    mpf_clears(rctx->im, rctx->re, NULL);
+    SDL_DestroyCond(rctx->lcond);
+    mpf_clears(rctx->im, rctx->re, rctx->scale, NULL);
     free(rctx);
     TTF_CloseFont(font);
+    TTF_Quit();
 
     return 0;
 }

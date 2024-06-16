@@ -213,6 +213,8 @@ int render_thread(void *data)
 {
     struct render_ctx *ctx = data;
     int i, workers_avail = SDL_GetCPUCount();
+    /* For HI-end cpus with 64+ threads */
+    if (workers_avail > ARRAY_LEN(ctx->workers)) workers_avail = ARRAY_LEN(ctx->workers);
 
     SDL_LockMutex(ctx->mutex);
     for (i = 0; i < workers_avail; ++i) {

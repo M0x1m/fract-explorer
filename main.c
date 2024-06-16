@@ -120,7 +120,7 @@ void render_fract_rect(const struct worker *worker)
             mpf_div(im, im, *scale);
             mpf_add(im, im, *pi);
             v = fract_dot(iters, re, im);
-            pixels[y*w + x] = gradient[(int)(v*gradient_width)]|0xff000000;
+            pixels[y*w + x] = gradient[(int)(v*gradient_width-1)];
         }
         mpf_clears(re, im, NULL);
     }

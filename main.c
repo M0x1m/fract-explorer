@@ -145,6 +145,8 @@ int worker_thread(void *data)
     SDL_UnlockMutex(w->ctx->mutex);
     SDL_CondSignal(w->ctx->lcond);
     SDL_UnlockMutex(w->mutex);
+    SDL_DestroyMutex(w->mutex);
+    SDL_DestroyCond(w->cond);
 
     return 0;
 }
@@ -212,7 +214,7 @@ void workgiving(struct render_ctx *ctx)
 int render_thread(void *data)
 {
     struct render_ctx *ctx = data;
-    int i, workers_avail = SDL_GetCPUCount();
+    size_t i, workers_avail = SDL_GetCPUCount();
     /* For HI-end cpus with 64+ threads */
     if (workers_avail > ARRAY_LEN(ctx->workers)) workers_avail = ARRAY_LEN(ctx->workers);
 
@@ -223,7 +225,7 @@ int render_thread(void *data)
         w->ctx = ctx;
         w->mutex = SDL_CreateMutex();
         w->cond = SDL_CreateCond();
-        sprintf(buf, "Worker%d", i);
+        sprintf(buf, "Worker%lu", i);
         w->thread = SDL_CreateThread(worker_thread, buf, w);
     }
 
@@ -239,6 +241,9 @@ int render_thread(void *data)
         if (!*ctx->quit && !ctx->needs_rerender) SDL_CondWait(ctx->cond, ctx->mutex);
     }
     SDL_UnlockMutex(ctx->mutex);
+    for (i = 0; i < workers_avail; ++i) {
+        SDL_WaitThread(ctx->workers[i].thread, NULL);
+    }
     return 0;
 }
 

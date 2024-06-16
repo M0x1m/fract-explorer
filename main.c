@@ -243,6 +243,7 @@ int render_thread(void *data)
     }
     SDL_UnlockMutex(ctx->mutex);
     for (i = 0; i < workers_avail; ++i) {
+        SDL_CondSignal(ctx->workers[i].cond);
         SDL_WaitThread(ctx->workers[i].thread, NULL);
     }
     return 0;

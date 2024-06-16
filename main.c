@@ -23,7 +23,7 @@ struct render_ctx {
     mpf_t re, im, scale;
     int iters, width, height;
     void *gradient;
-    int gwidth;
+    int gwidth, workers_avail;
     bool *quit, resized, needs_rerender;
     uint32_t *pixels;
     struct worker *free;
@@ -136,6 +136,7 @@ int worker_thread(void *data)
         w->next_free = w->ctx->free;
         w->ctx->free = w;
         SDL_UnlockMutex(w->ctx->mutex);
+        w->work.w = 0;
         SDL_CondSignal(w->ctx->lcond);
         SDL_CondWait(w->cond, w->mutex);
         render_fract_rect(w);
@@ -171,7 +172,7 @@ void park_all_workers(struct render_ctx *ctx)
         j++;
     }
 
-    for (i = 0; i < j && free_depth(ctx->free) < j; ++i) {
+    for (; free_depth(ctx->free) < (size_t) ctx->workers_avail;) {
         SDL_CondWait(ctx->lcond, ctx->mutex);
     }
 }
@@ -215,12 +216,13 @@ void workgiving(struct render_ctx *ctx)
 int render_thread(void *data)
 {
     struct render_ctx *ctx = data;
-    size_t i, workers_avail = SDL_GetCPUCount();
+    size_t i;
+    ctx->workers_avail = SDL_GetCPUCount();
     /* For HI-end cpus with 64+ threads */
-    if (workers_avail > ARRAY_LEN(ctx->workers)) workers_avail = ARRAY_LEN(ctx->workers);
+    if ((size_t) ctx->workers_avail > ARRAY_LEN(ctx->workers)) ctx->workers_avail = ARRAY_LEN(ctx->workers);
 
     SDL_LockMutex(ctx->mutex);
-    for (i = 0; i < workers_avail; ++i) {
+    for (i = 0; i < (size_t) ctx->workers_avail; ++i) {
         char buf[256];
         struct worker *w = &ctx->workers[i];
         w->ctx = ctx;
@@ -242,7 +244,7 @@ int render_thread(void *data)
         if (!*ctx->quit && !ctx->needs_rerender) SDL_CondWait(ctx->cond, ctx->mutex);
     }
     SDL_UnlockMutex(ctx->mutex);
-    for (i = 0; i < workers_avail; ++i) {
+    for (i = 0; i < (size_t) ctx->workers_avail; ++i) {
         SDL_CondSignal(ctx->workers[i].cond);
         SDL_WaitThread(ctx->workers[i].thread, NULL);
     }
@@ -454,8 +456,9 @@ resize:
 
         SDL_RenderCopy(renderer, texture, NULL, NULL);
         SDL_SetRenderDrawColor(renderer, 0xff, 0x00, 0x00, 0xff);
-        for (i = 0; i < SDL_GetCPUCount(); ++i) {
+        for (i = 0; i < rctx->workers_avail; ++i) {
             SDL_Rect work = rctx->workers[i].work;
+            if (!work.w) continue;
             work.x = (float)work.x/scd;
             work.y = (float)work.y/scd;
             work.w = (float)work.w/scd;
